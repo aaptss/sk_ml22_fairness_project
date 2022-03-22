@@ -117,8 +117,8 @@ class DispMistreatmentClassifier(BaseEstimator, ClassifierMixin):
         self.EPS = EPS
 
     def fit(self, X, y=None):
-        max_iters = 100  # for the convex program
-        max_iter_dccp = 50  # for the dccp algo
+        max_iters = 500  # for the convex program
+        max_iter_dccp = 100  # for the dccp algo
 
         num_points, num_features = X.shape
         w = cp.Variable(num_features)  # this is the weight vector
@@ -130,6 +130,8 @@ class DispMistreatmentClassifier(BaseEstimator, ClassifierMixin):
         if self.cons_params is None:  # just train a simple classifier, no fairness constraints
             constraints = []
         else:
+            w = np.array(w.value).flatten()  # flatten converts it to a 1d array
+            self.w = w
             constraints = get_constraint_list_cov(X, y,
                                                   self.x_control,
                                                   self.cons_params["sensitive_attrs_to_cov_thresh"],
@@ -163,15 +165,18 @@ class DispMistreatmentClassifier(BaseEstimator, ClassifierMixin):
                 if self.cons_params.get("tau") is not None: tau = self.cons_params["tau"]
                 if self.cons_params.get("mu") is not None: mu = self.cons_params["mu"]
 
-            prob.solve(method='dccp', tau=tau, mu=mu, tau_max=1e10,
-                       solver=cp.ECOS, verbose=False,
-                       feastol=self.EPS, abstol=self.EPS,
-                       reltol=self.EPS, feastol_inacc=self.EPS, abstol_inacc=self.EPS,
-                       reltol_inacc=self.EPS,
-                       max_iters=max_iters, max_iter=max_iter_dccp)
-
+            try:
+                prob.solve(method='dccp', tau=tau, mu=mu, tau_max=1e10,
+                           solver=cp.ECOS, verbose=False,
+                           feastol=self.EPS, abstol=self.EPS,
+                           reltol=self.EPS, feastol_inacc=self.EPS, abstol_inacc=self.EPS,
+                           reltol_inacc=self.EPS,
+                           max_iters=max_iters, max_iter=max_iter_dccp)
+            except cp.SolverError:
+                prob.solve(method='dccp', tau=tau, mu=mu, tau_max=1e10,
+                           solver=cp.MOSEK, verbose=False)
+            print("Optimization done, problem status:", prob.status)
             assert (prob.status == "Converged" or prob.status == "optimal")
-            # print("Optimization done, problem status:", prob.status)
         except:
             traceback.print_exc()
             sys.stdout.flush()
