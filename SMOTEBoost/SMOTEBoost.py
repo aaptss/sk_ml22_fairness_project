@@ -33,7 +33,7 @@ from sklearn.ensemble._forest import BaseForest
 import six
 import sys
 sys.modules['sklearn.externals.six'] = six
-from sklearn.metrics import accuracy_score, balanced_accuracy_score
+from sklearn.metrics import accuracy_score, balanced_accuracy_score, precision_score, recall_score, f1_score
 from sklearn.metrics import r2_score
 from sklearn.tree._tree import DTYPE
 from sklearn.tree import BaseDecisionTree, DecisionTreeClassifier
@@ -500,7 +500,8 @@ class SMOTEBoost(BaseWeightBoosting, ClassifierMixin):
                  X_test=None, y_test=None,
                  n_samples=100,
                  k_neighbors=5,
-                 storePerfomance=True):
+                 storePerfomance=True,
+                 ignoreSensitiveFeature=False):
 
         self.n_samples = n_samples
         self.algorithm = algorithm
@@ -518,6 +519,7 @@ class SMOTEBoost(BaseWeightBoosting, ClassifierMixin):
         self.algorithm = algorithm
         self.debug = debug
         self.storePerfomance = storePerfomance
+        self.ignoreSensitiveFeature = ignoreSensitiveFeature
         self.X_test = X_test
         self.y_test = y_test
         self.costs = []
@@ -584,12 +586,13 @@ class SMOTEBoost(BaseWeightBoosting, ClassifierMixin):
 
         if self.storePerfomance:
             if iboost != 0:
-                train_scores = cross_validate(estimator, X, y, cv=10,
-                                              scoring=['accuracy'], n_jobs=-1)
-                test_scores = cross_validate(estimator, self.X_test, self.y_test, cv=10,
-                                             scoring=['accuracy'], n_jobs=-1)
+                train_scores = cross_validate(estimator, X, y, cv=10, n_jobs=-1)
+                test_scores = cross_validate(estimator, self.X_test, self.y_test, cv=10, n_jobs=-1)
                 eq_odds, tpr_p, tnr_p, tpr_np, tnr_np = self.calculate_fairness(self.X_test, self.y_test, self.predict(self.X_test))
                 test_auc = balanced_accuracy_score(self.y_test, self.predict(self.X_test))
+                test_scores['test_recall'] = recall_score(self.y_test, self.predict(self.X_test))
+                test_scores['test_precision'] = precision_score(self.y_test, self.predict(self.X_test))
+                test_scores['f1_score'] = f1_score(self.y_test, self.predict(self.X_test))
                 test_scores['Balanced accuracy'] = test_auc
                 test_scores['Eq.Odds'] = eq_odds
                 test_scores['TNR prot'] = tnr_p
@@ -746,22 +749,35 @@ class SMOTEBoost(BaseWeightBoosting, ClassifierMixin):
         fn_non_protected = 0.
         for idx, val in enumerate(data):
             # protrcted population
-            if val[self.saIndex] == self.saValue:
-                # correctly classified
-                if labels[idx] == predictions[idx]:
-                    if labels[idx] == 1:
-                        tp_protected += 1
+            if not self.ignoreSensitiveFeature:
+                if val[self.saIndex] == self.saValue:
+                    # correctly classified
+                    if labels[idx] == predictions[idx]:
+                        if labels[idx] == 1:
+                            tp_protected += 1
+                        else:
+                            tn_protected += 1
+                    # misclassified
                     else:
-                        tn_protected += 1
-                # misclassified
-                else:
-                    if labels[idx] == 1:
-                        fn_protected += 1
-                    else:
-                        fp_protected += 1
+                        if labels[idx] == 1:
+                            fn_protected += 1
+                        else:
+                            fp_protected += 1
 
+                else:
+                    # correctly classified
+                    if labels[idx] == predictions[idx]:
+                        if labels[idx] == 1:
+                            tp_non_protected += 1
+                        else:
+                            tn_non_protected += 1
+                    # misclassified
+                    else:
+                        if labels[idx] == 1:
+                            fn_non_protected += 1
+                        else:
+                            fp_non_protected += 1
             else:
-                # correctly classified
                 if labels[idx] == predictions[idx]:
                     if labels[idx] == 1:
                         tp_non_protected += 1
@@ -774,8 +790,8 @@ class SMOTEBoost(BaseWeightBoosting, ClassifierMixin):
                     else:
                         fp_non_protected += 1
 
-        tpr_protected = tp_protected / (tp_protected + fn_protected)
-        tnr_protected = tn_protected / (tn_protected + fp_protected)
+        tpr_protected = tp_protected / (tp_protected + fn_protected) if not self.ignoreSensitiveFeature else 0
+        tnr_protected = tn_protected / (tn_protected + fp_protected) if not self.ignoreSensitiveFeature else 0
 
         tpr_non_protected = tp_non_protected / (tp_non_protected + fn_non_protected)
         tnr_non_protected = tn_non_protected / (tn_non_protected + fp_non_protected)
