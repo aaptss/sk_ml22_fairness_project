@@ -32,10 +32,12 @@ function [x, y, sensitive, training, test] = importBankData()
     end
     
     sensitive = false(size(data_f,1), 1);
-    a = data(:,1);
+%    a = data(:,1);
+    a = data(:,3);
     a = vertcat(a{:});
     for j=1:size(data_f,1)
-        sensitive(j) = double(a(j))>=25 & double(a(j))<=60;
+%        sensitive(j) = double(a(j))>=25 & double(a(j))<=60;
+        sensitive(j) = strcmp(cellstr(a(j)),'"divorced"')==1);
     end;
     
     x = data_f;
